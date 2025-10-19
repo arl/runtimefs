@@ -1,6 +1,7 @@
 package runtimefs
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -12,17 +13,16 @@ type UnmountFunc func() error
 func Mount(dirpath string) (UnmountFunc, error) {
 	opts := &fs.Options{}
 
-	root := newMetricsRoot(1 * time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	root := newMetricsRoot(ctx, 1*time.Second)
 
 	server, err := fs.Mount(dirpath, root, opts)
 	if err != nil {
 		return nil, fmt.Errorf("runtimefs failed to mount: %s", err)
 	}
 
-	// TODO: check if wait mount is necessary
-	// server.WaitMount()
-
 	return func() error {
+		cancel()
 		server.Unmount()
 		server.Wait()
 		return nil
