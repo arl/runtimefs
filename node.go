@@ -40,6 +40,7 @@ func (mf *metricsFile) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.
 	mf.mu.RLock()
 	defer mf.mu.RUnlock()
 
+	out.Mode = fuse.S_IFREG | 0444
 	out.Size = uint64(len(mf.data))
 	out.Mtime = uint64(max(mf.mtime, mf.ctime))
 	out.Atime = uint64(max(mf.mtime, mf.ctime))
