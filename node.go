@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -16,11 +17,20 @@ type metricsFile struct {
 	mu    sync.RWMutex
 	data  []byte
 	mtime int64
+	ctime int64
 
 	readval func(buf []byte) ([]byte, int64)
 }
 
 var _ = (fs.NodeOpener)((*metricsFile)(nil))
+
+func newMetricsFile(name string, readval func(buf []byte) ([]byte, int64)) *metricsFile {
+	return &metricsFile{
+		name:    name,
+		readval: readval,
+		ctime:   time.Now().Unix(),
+	}
+}
 
 // Getattr sets the minimum, which is the size. A more full-featured
 // FS would also set timestamps and permissions.
@@ -31,7 +41,9 @@ func (mf *metricsFile) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.
 	defer mf.mu.RUnlock()
 
 	out.Size = uint64(len(mf.data))
-	out.Mtime = uint64(mf.mtime)
+	out.Mtime = uint64(max(mf.mtime, mf.ctime))
+	out.Atime = uint64(max(mf.mtime, mf.ctime))
+	out.Ctime = uint64(mf.ctime)
 	return 0
 }
 
