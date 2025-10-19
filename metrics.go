@@ -83,21 +83,24 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 			p = ch
 		}
 
-		if node := mr.createMetricNode(idx); node != nil {
-			ch := p.NewPersistentInode(ctx, node, fs.StableAttr{})
-			p.AddChild(base, ch, true)
+		// Create leaf nodes.
+		if nodes := mr.createMetricNodes(idx); nodes != nil {
+			for _, node := range nodes {
+				ch := p.NewPersistentInode(ctx, node, fs.StableAttr{})
+				p.AddChild(base, ch, true)
+			}
 		}
 	}
 }
 
-func (mr *metricsRoot) createMetricNode(idx int) fs.InodeEmbedder {
+func (mr *metricsRoot) createMetricNodes(idx int) []fs.InodeEmbedder {
 	sample := mr.samples[idx]
 
-	var node fs.InodeEmbedder
+	var nodes []fs.InodeEmbedder
 
 	switch sample.Value.Kind() {
 	case metrics.KindUint64:
-		node = &metricsFile{
+		nodes = append(nodes, &metricsFile{
 			name: sample.Name,
 			readval: func(buf []byte) []byte {
 				mr.mu.RLock()
@@ -106,9 +109,9 @@ func (mr *metricsRoot) createMetricNode(idx int) fs.InodeEmbedder {
 				val := mr.samples[idx].Value.Uint64()
 				return fmt.Appendf(buf, "%d", val)
 			},
-		}
+		})
 	case metrics.KindFloat64:
-		node = &metricsFile{
+		nodes = append(nodes, &metricsFile{
 			name: sample.Name,
 			readval: func(buf []byte) []byte {
 				mr.mu.RLock()
@@ -117,9 +120,9 @@ func (mr *metricsRoot) createMetricNode(idx int) fs.InodeEmbedder {
 				val := mr.samples[idx].Value.Float64()
 				return fmt.Appendf(buf, "%v", val)
 			},
-		}
+		})
 	case metrics.KindFloat64Histogram:
-		node = &metricsFile{
+		nodes = append(nodes, &metricsFile{
 			name: sample.Name,
 			readval: func(buf []byte) []byte {
 				mr.mu.RLock()
@@ -129,12 +132,12 @@ func (mr *metricsRoot) createMetricNode(idx int) fs.InodeEmbedder {
 				hist := mr.samples[idx].Value.Float64Histogram()
 				return fmt.Appendf(buf, "%+v", hist.Counts)
 			},
-		}
+		})
 	case metrics.KindBad:
 		panic("unexpected metrics.KindBad")
 	default:
 		break // unsupported metric kind (yet)
 	}
 
-	return node
+	return nodes
 }
