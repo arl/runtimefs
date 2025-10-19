@@ -43,13 +43,37 @@ func (mf *metricsFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, u
 	mf.data = mf.data[:0]
 	mf.data = mf.readval(mf.data)
 
-	// We don't return a filehandle since we don't really need one. The file
-	// content is immutable, so hint the kernel to cache the data.
-	return nil, fuse.FOPEN_KEEP_CACHE, fs.OK
+	fh := bytesFileHandle{
+		content: mf.data,
+	}
+
+
+	// Return FOPEN_DIRECT_IO so content is not cached.
+	return fh, fuse.FOPEN_DIRECT_IO, fs.OK
 }
 
 // Read returns a view on the data buffer we've already filled in the Open call.
 func (mf *metricsFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
 	end := min(int(off)+len(dest), len(mf.data))
 	return fuse.ReadResultData(mf.data[off:end]), fs.OK
+}
+
+// bytesFileHandle is a file handle that carries separate content for each Open
+// call.
+type bytesFileHandle struct {
+	content []byte
+}
+
+// bytesFileHandle allows reads
+var _ = (fs.FileReader)((*bytesFileHandle)(nil))
+
+func (fh *bytesFileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+	end := off + int64(len(dest))
+	if end > int64(len(fh.content)) {
+		end = int64(len(fh.content))
+	}
+
+	// We could copy to the `dest` buffer, but since we have a
+	// []byte already, return that.
+	return fuse.ReadResultData(fh.content[off:end]), 0
 }
