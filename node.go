@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -14,10 +13,11 @@ type metricsFile struct {
 	fs.Inode
 	name string
 
-	mu   sync.RWMutex
-	data []byte
+	mu    sync.RWMutex
+	data  []byte
+	mtime int64
 
-	readval func(buf []byte) []byte
+	readval func(buf []byte) ([]byte, int64)
 }
 
 var _ = (fs.NodeOpener)((*metricsFile)(nil))
@@ -31,7 +31,7 @@ func (mf *metricsFile) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.
 	defer mf.mu.RUnlock()
 
 	out.Size = uint64(len(mf.data))
-	out.Mtime = uint64(time.Now().Unix())
+	out.Mtime = uint64(mf.mtime)
 	return 0
 }
 
@@ -46,7 +46,7 @@ func (mf *metricsFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, u
 	defer mf.mu.Unlock()
 
 	mf.data = mf.data[:0]
-	mf.data = mf.readval(mf.data)
+	mf.data, mf.mtime = mf.readval(mf.data)
 
 	// Return FOPEN_DIRECT_IO so content is not cached.
 	return nil, fuse.FOPEN_DIRECT_IO, fs.OK

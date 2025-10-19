@@ -21,8 +21,9 @@ type metricsRoot struct {
 	rootctx context.Context
 	every   time.Duration
 
-	mu      sync.RWMutex
-	samples []metrics.Sample
+	mu         sync.RWMutex
+	samples    []metrics.Sample
+	lastUpdate int64
 }
 
 func newMetricsRoot(ctx context.Context, every time.Duration) *metricsRoot {
@@ -43,11 +44,10 @@ func newMetricsRoot(ctx context.Context, every time.Duration) *metricsRoot {
 // The root populates the tree in its OnAdd method
 var _ = (fs.NodeOnAdder)((*metricsRoot)(nil))
 
+// OnAdd is called once we are attached to an Inode. We can then construct a
+// tree. We construct the entire tree, and since we don't want parts of it to
+// disappear when the kernel is short on memory, we use persistent inodes.
 func (mr *metricsRoot) OnAdd(ctx context.Context) {
-	// OnAdd is called once we are attached to an Inode. We can then construct a
-	// tree. We construct the entire tree, and since we don't want parts of it
-	// to disappear when the kernel is short on memory, we use persistent inodes.
-
 	// Start reading metrics periodically
 	go func() {
 		ticker := time.NewTicker(mr.every)
@@ -60,6 +60,7 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 			case <-ticker.C:
 				mr.mu.Lock()
 				metrics.Read(mr.samples)
+				mr.lastUpdate = time.Now().Unix()
 				mr.mu.Unlock()
 			}
 		}
@@ -75,8 +76,7 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 			}
 			ch := p.GetChild(component)
 			if ch == nil {
-				ch = p.NewPersistentInode(ctx, &fs.Inode{},
-					fs.StableAttr{Mode: fuse.S_IFDIR})
+				ch = p.NewPersistentInode(ctx, &fs.Inode{}, fs.StableAttr{Mode: fuse.S_IFDIR})
 				p.AddChild(component, ch, true)
 			}
 
@@ -86,7 +86,7 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 		// Create leaf nodes.
 		if nodes := mr.createMetricNodes(idx); nodes != nil {
 			for _, node := range nodes {
-				ch := p.NewPersistentInode(ctx, node, fs.StableAttr{})
+				ch := p.NewPersistentInode(ctx, node, fs.StableAttr{Mode: fuse.S_IFREG | 0444})
 				p.AddChild(base, ch, true)
 			}
 		}
@@ -102,35 +102,35 @@ func (mr *metricsRoot) createMetricNodes(idx int) []fs.InodeEmbedder {
 	case metrics.KindUint64:
 		nodes = append(nodes, &metricsFile{
 			name: sample.Name,
-			readval: func(buf []byte) []byte {
+			readval: func(buf []byte) ([]byte, int64) {
 				mr.mu.RLock()
 				defer mr.mu.RUnlock()
 
 				val := mr.samples[idx].Value.Uint64()
-				return fmt.Appendf(buf, "%d", val)
+				return fmt.Appendf(buf, "%d", val), mr.lastUpdate
 			},
 		})
 	case metrics.KindFloat64:
 		nodes = append(nodes, &metricsFile{
 			name: sample.Name,
-			readval: func(buf []byte) []byte {
+			readval: func(buf []byte) ([]byte, int64) {
 				mr.mu.RLock()
 				defer mr.mu.RUnlock()
 
 				val := mr.samples[idx].Value.Float64()
-				return fmt.Appendf(buf, "%v", val)
+				return fmt.Appendf(buf, "%v", val), mr.lastUpdate
 			},
 		})
 	case metrics.KindFloat64Histogram:
 		nodes = append(nodes, &metricsFile{
 			name: sample.Name,
-			readval: func(buf []byte) []byte {
+			readval: func(buf []byte) ([]byte, int64) {
 				mr.mu.RLock()
 				defer mr.mu.RUnlock()
 
 				// TODO: refine this.
 				hist := mr.samples[idx].Value.Float64Histogram()
-				return fmt.Appendf(buf, "%+v", hist.Counts)
+				return fmt.Appendf(buf, "%+v", hist.Counts), mr.lastUpdate
 			},
 		})
 	case metrics.KindBad:
