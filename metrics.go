@@ -100,39 +100,36 @@ func (mr *metricsRoot) createMetricNodes(idx int) []fs.InodeEmbedder {
 
 	switch sample.Value.Kind() {
 	case metrics.KindUint64:
-		nodes = append(nodes, &metricsFile{
-			name: sample.Name,
-			readval: func(buf []byte) ([]byte, int64) {
-				mr.mu.RLock()
-				defer mr.mu.RUnlock()
+		read := func(buf []byte) ([]byte, int64) {
+			mr.mu.RLock()
+			defer mr.mu.RUnlock()
 
-				val := mr.samples[idx].Value.Uint64()
-				return fmt.Appendf(buf, "%d", val), mr.lastUpdate
-			},
-		})
+			val := mr.samples[idx].Value.Uint64()
+			return fmt.Appendf(buf, "%d", val), mr.lastUpdate
+		}
+
+		nodes = append(nodes, newMetricsFile(sample.Name, read))
 	case metrics.KindFloat64:
-		nodes = append(nodes, &metricsFile{
-			name: sample.Name,
-			readval: func(buf []byte) ([]byte, int64) {
-				mr.mu.RLock()
-				defer mr.mu.RUnlock()
+		read := func(buf []byte) ([]byte, int64) {
+			mr.mu.RLock()
+			defer mr.mu.RUnlock()
 
-				val := mr.samples[idx].Value.Float64()
-				return fmt.Appendf(buf, "%v", val), mr.lastUpdate
-			},
-		})
+			val := mr.samples[idx].Value.Float64()
+			return fmt.Appendf(buf, "%v", val), mr.lastUpdate
+		}
+
+		nodes = append(nodes, newMetricsFile(sample.Name, read))
 	case metrics.KindFloat64Histogram:
-		nodes = append(nodes, &metricsFile{
-			name: sample.Name,
-			readval: func(buf []byte) ([]byte, int64) {
-				mr.mu.RLock()
-				defer mr.mu.RUnlock()
+		read := func(buf []byte) ([]byte, int64) {
+			mr.mu.RLock()
+			defer mr.mu.RUnlock()
 
-				// TODO: refine this.
-				hist := mr.samples[idx].Value.Float64Histogram()
-				return fmt.Appendf(buf, "%+v", hist.Counts), mr.lastUpdate
-			},
-		})
+			// TODO: refine this.
+			hist := mr.samples[idx].Value.Float64Histogram()
+			return fmt.Appendf(buf, "%+v", hist.Counts), mr.lastUpdate
+		}
+
+		nodes = append(nodes, newMetricsFile(sample.Name, read))
 	case metrics.KindBad:
 		panic("unexpected metrics.KindBad")
 	default:
