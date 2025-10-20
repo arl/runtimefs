@@ -15,6 +15,18 @@ Install the library (only depends on github.com/hanwen/go-fuse/v2):
 go get github.com/arl/runtimefs@latest
 ```
 
+API:
+
+```go
+// Mount mounts the runtime metrics filesystem at the given directory path. It
+// returns a function to unmount the filesystem, or an error if the mount
+// operation failed.
+func Mount(dirpath string) (UnmountFunc, error)
+
+// UnmountFunc is the type of the function to unmount the filesystem.
+type UnmountFunc func() error
+```
+
 Example usage:
 
 ```go
@@ -32,23 +44,13 @@ import (
 const mountDir = "./mnt"
 
 func main() {
-	unmount, err := runtimefs.Mount(mountDir)
-	if err != nil {
-		fmt.Printf("Failed to mount: %s", err)
-		return
-	}
-
-	fmt.Println("Press Ctrl+C to unmount and exit")
+	unmount, _ := runtimefs.Mount(mountDir)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	<-ctx.Done()
 
-	fmt.Println("Unmounting...")
-	if err := unmount(); err != nil {
-		fmt.Printf("Failed to unmount: %s", err)
-	}
-	fmt.Println("Unmounted")
+	err := unmount(); err != nil { /* handle error */ }
 }
 ```
 
