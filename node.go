@@ -12,7 +12,6 @@ import (
 
 type metricsFile struct {
 	fs.Inode
-	name string
 
 	mu    sync.RWMutex
 	data  []byte
@@ -24,9 +23,8 @@ type metricsFile struct {
 
 var _ = (fs.NodeOpener)((*metricsFile)(nil))
 
-func newMetricsFile(name string, readval func(buf []byte) ([]byte, int64)) *metricsFile {
+func newMetricsFile(readval func(buf []byte) ([]byte, int64)) *metricsFile {
 	return &metricsFile{
-		name:    name,
 		readval: readval,
 		ctime:   time.Now().Unix(),
 	}
@@ -75,4 +73,51 @@ func (mf *metricsFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, 
 	copy(buf, mf.data[off:end])
 
 	return fuse.ReadResultData(buf), fs.OK
+}
+
+type staticFile struct {
+	fs.Inode
+
+	data  []byte
+	ctime int64
+}
+
+func newStaticFile(data []byte) *staticFile {
+	return &staticFile{
+		data:  data,
+		ctime: time.Now().Unix(),
+	}
+}
+
+var _ = (fs.NodeOpener)((*staticFile)(nil))
+
+// Getattr sets the minimum, which is the size. A more full-featured
+// FS would also set timestamps and permissions.
+var _ = (fs.NodeGetattrer)((*staticFile)(nil))
+
+func (sf *staticFile) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
+	out.Atime = uint64(sf.ctime)
+	out.Ctime = uint64(sf.ctime)
+	out.Mtime = uint64(sf.ctime)
+	out.Mode = fuse.S_IFREG | 0444
+	out.Size = uint64(len(sf.data))
+	return 0
+}
+
+// Open lazily unpacks zip data
+func (sf *staticFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
+	// Disallow writes.
+	if flags&(syscall.O_RDWR|syscall.O_WRONLY) != 0 {
+		return nil, 0, syscall.EROFS
+	}
+
+	// We don't return a filehandle since we don't really need one. The file
+	// content is immutable, so hint the kernel to cache the data.
+	return nil, fuse.FOPEN_KEEP_CACHE, fs.OK
+}
+
+// Read simply returns the data that was already unpacked in the Open call
+func (sf *staticFile) Read(ctx context.Context, f fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+	end := min(int(off)+len(dest), len(sf.data))
+	return fuse.ReadResultData(sf.data[off:end]), fs.OK
 }
