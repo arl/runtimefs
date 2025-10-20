@@ -8,8 +8,7 @@ Metrics are organized in a directory hierarchy that mirrors their names.
 
 ## Quick start
 
-
-Install the library (only depends on [github.com/hanwen/go-fuse/v2](github.com/hanwen/go-fuse/v2)):
+Install the library:
 
 ```
 go get github.com/arl/runtimefs@latest
