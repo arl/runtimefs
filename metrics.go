@@ -85,7 +85,7 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 				defer mr.mu.RUnlock()
 
 				val := mr.samples[idx].Value.Float64()
-				return fmt.Appendf(buf, "%v\n", val), mr.lastUpdate
+				return fmt.Appendf(buf, "%e\n", val), mr.lastUpdate
 			}
 
 			createSingleValueMetric(ctx, p, desc, name, unit, read)
@@ -96,10 +96,15 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 
 				// TODO: refine this.
 				hist := mr.samples[idx].Value.Float64Histogram()
-				return fmt.Appendf(buf, "%+v\n", hist.Counts), mr.lastUpdate
+				for _, buck := range hist.Counts {
+					buf = fmt.Appendf(buf, "%d\n", buck)
+				}
+
+				return buf, mr.lastUpdate
 			}
 
-			createHistogramMetric(ctx, p, desc, name, unit, read)
+			buckets := mr.samples[idx].Value.Float64Histogram().Buckets
+			createHistogramMetric(ctx, p, desc, name, unit, buckets, read)
 
 		case metrics.KindBad:
 			panic("unexpected metrics.KindBad")
@@ -145,7 +150,7 @@ func createSingleValueMetric(ctx context.Context, p *fs.Inode, desc metrics.Desc
 	p.AddChild("cumulative", node, true)
 }
 
-func createHistogramMetric(ctx context.Context, p *fs.Inode, desc metrics.Description, name, unit string, read readFunc) {
+func createHistogramMetric(ctx context.Context, p *fs.Inode, desc metrics.Description, name, unit string, buckets []float64, read readFunc) {
 	ch := p.NewPersistentInode(ctx, &fs.Inode{}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	p.AddChild(name, ch, true)
 	p = ch
@@ -160,6 +165,14 @@ func createHistogramMetric(ctx context.Context, p *fs.Inode, desc metrics.Descri
 
 	node = p.NewPersistentInode(ctx, newStaticFile(b2str(desc.Cumulative)), attr)
 	p.AddChild("cumulative", node, true)
+
+	bnames := make([]string, len(buckets))
+	for i := range buckets {
+		bnames[i] = fmt.Sprintf("%e", buckets[i])
+	}
+
+	node = p.NewPersistentInode(ctx, newStaticFile(strings.Join(bnames, "\n")), attr)
+	p.AddChild("buckets", node, true)
 }
 
 func b2str(v bool) string {
