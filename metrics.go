@@ -65,7 +65,48 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 			p = ch
 		}
 
-		mr.createLeafDir(ctx, p, base, idx, descs[idx])
+		name, unit, _ := strings.Cut(base, ":")
+
+		desc := descs[idx]
+		switch desc.Kind {
+		case metrics.KindUint64:
+			read := func(buf []byte) ([]byte, int64) {
+				mr.mu.RLock()
+				defer mr.mu.RUnlock()
+
+				val := mr.samples[idx].Value.Uint64()
+				return fmt.Appendf(buf, "%d\n", val), mr.lastUpdate
+			}
+
+			createSingleValueMetric(ctx, p, desc, name, unit, read)
+		case metrics.KindFloat64:
+			read := func(buf []byte) ([]byte, int64) {
+				mr.mu.RLock()
+				defer mr.mu.RUnlock()
+
+				val := mr.samples[idx].Value.Float64()
+				return fmt.Appendf(buf, "%v\n", val), mr.lastUpdate
+			}
+
+			createSingleValueMetric(ctx, p, desc, name, unit, read)
+		case metrics.KindFloat64Histogram:
+			read := func(buf []byte) ([]byte, int64) {
+				mr.mu.RLock()
+				defer mr.mu.RUnlock()
+
+				// TODO: refine this.
+				hist := mr.samples[idx].Value.Float64Histogram()
+				return fmt.Appendf(buf, "%+v\n", hist.Counts), mr.lastUpdate
+			}
+
+			createHistogramMetric(ctx, p, desc, name, unit, read)
+
+		case metrics.KindBad:
+			panic("unexpected metrics.KindBad")
+		default:
+			continue // unsupported metric kind.
+		}
+
 	}
 
 	// Update metrics.
@@ -87,79 +128,43 @@ func (mr *metricsRoot) OnAdd(ctx context.Context) {
 	}()
 }
 
-func (mr *metricsRoot) createLeafDir(ctx context.Context, p *fs.Inode, base string, idx int, desc metrics.Description) {
-	nodes := make(map[string]fs.InodeEmbedder)
-	name, unit, _ := strings.Cut(base, ":")
-
-	nodes["description"] = newStaticFile([]byte(desc.Description))
-	nodes["cumulative"] = newStaticFile(b2str(desc.Cumulative))
-
-	switch desc.Kind {
-	case metrics.KindUint64:
-		nodes[unit] = mr.createUint64Node(idx)
-
-	case metrics.KindFloat64:
-		nodes[unit] = mr.createFloat64Node(idx)
-
-	case metrics.KindFloat64Histogram:
-		nodes[unit] = mr.createHistNode(idx)
-
-	case metrics.KindBad:
-		panic("unexpected metrics.KindBad")
-	default:
-		break // unsupported metric kind (yet)
-	}
-
+func createSingleValueMetric(ctx context.Context, p *fs.Inode, desc metrics.Description, name, unit string, read readFunc) {
 	ch := p.NewPersistentInode(ctx, &fs.Inode{}, fs.StableAttr{Mode: fuse.S_IFDIR})
 	p.AddChild(name, ch, true)
 	p = ch
 
-	for name, node := range nodes {
-		ch := p.NewPersistentInode(ctx, node, fs.StableAttr{Mode: fuse.S_IFREG | 0444})
-		p.AddChild(name, ch, true)
-	}
+	attr := fs.StableAttr{Mode: fuse.S_IFREG | 0444}
+
+	node := p.NewPersistentInode(ctx, newMetricsFile(read), attr)
+	p.AddChild(unit, node, true)
+
+	node = p.NewPersistentInode(ctx, newStaticFile(desc.Description), attr)
+	p.AddChild("description", node, true)
+
+	node = p.NewPersistentInode(ctx, newStaticFile(b2str(desc.Cumulative)), attr)
+	p.AddChild("cumulative", node, true)
 }
 
-func (mr *metricsRoot) createUint64Node(idx int) fs.InodeEmbedder {
-	read := func(buf []byte) ([]byte, int64) {
-		mr.mu.RLock()
-		defer mr.mu.RUnlock()
+func createHistogramMetric(ctx context.Context, p *fs.Inode, desc metrics.Description, name, unit string, read readFunc) {
+	ch := p.NewPersistentInode(ctx, &fs.Inode{}, fs.StableAttr{Mode: fuse.S_IFDIR})
+	p.AddChild(name, ch, true)
+	p = ch
 
-		val := mr.samples[idx].Value.Uint64()
-		return fmt.Appendf(buf, "%d\n", val), mr.lastUpdate
-	}
+	attr := fs.StableAttr{Mode: fuse.S_IFREG | 0444}
 
-	return newMetricsFile(read)
+	node := p.NewPersistentInode(ctx, newMetricsFile(read), attr)
+	p.AddChild(unit, node, true)
+
+	node = p.NewPersistentInode(ctx, newStaticFile(desc.Description), attr)
+	p.AddChild("description", node, true)
+
+	node = p.NewPersistentInode(ctx, newStaticFile(b2str(desc.Cumulative)), attr)
+	p.AddChild("cumulative", node, true)
 }
 
-func (mr *metricsRoot) createFloat64Node(idx int) fs.InodeEmbedder {
-	read := func(buf []byte) ([]byte, int64) {
-		mr.mu.RLock()
-		defer mr.mu.RUnlock()
-
-		val := mr.samples[idx].Value.Float64()
-		return fmt.Appendf(buf, "%v\n", val), mr.lastUpdate
-	}
-
-	return newMetricsFile(read)
-}
-
-func (mr *metricsRoot) createHistNode(idx int) fs.InodeEmbedder {
-	read := func(buf []byte) ([]byte, int64) {
-		mr.mu.RLock()
-		defer mr.mu.RUnlock()
-
-		// TODO: refine this.
-		hist := mr.samples[idx].Value.Float64Histogram()
-		return fmt.Appendf(buf, "%+v\n", hist.Counts), mr.lastUpdate
-	}
-
-	return newMetricsFile(read)
-}
-
-func b2str(v bool) []byte {
+func b2str(v bool) string {
 	if v {
-		return []byte("1")
+		return "1"
 	}
-	return []byte("0")
+	return "0"
 }

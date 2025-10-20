@@ -10,6 +10,11 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 )
 
+// readFunc reads the latest metric value, convert it and appends the result to
+// the byte slice, and returns the updated slice, as well as the timestamp of
+// latest update (time of the sample read from /runtime/metrics)
+type readFunc func(buf []byte) ([]byte, int64)
+
 type metricsFile struct {
 	fs.Inode
 
@@ -18,15 +23,15 @@ type metricsFile struct {
 	mtime int64
 	ctime int64
 
-	readval func(buf []byte) ([]byte, int64)
+	read readFunc
 }
 
 var _ = (fs.NodeOpener)((*metricsFile)(nil))
 
-func newMetricsFile(readval func(buf []byte) ([]byte, int64)) *metricsFile {
+func newMetricsFile(readval readFunc) *metricsFile {
 	return &metricsFile{
-		readval: readval,
-		ctime:   time.Now().Unix(),
+		read:  readval,
+		ctime: time.Now().Unix(),
 	}
 }
 
@@ -43,7 +48,7 @@ func (mf *metricsFile) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.
 	out.Mtime = uint64(max(mf.mtime, mf.ctime))
 	out.Atime = uint64(max(mf.mtime, mf.ctime))
 	out.Ctime = uint64(mf.ctime)
-	return 0
+	return fs.OK
 }
 
 // Open reads the latest metrics value.
@@ -56,8 +61,7 @@ func (mf *metricsFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, u
 	mf.mu.Lock()
 	defer mf.mu.Unlock()
 
-	mf.data = mf.data[:0]
-	mf.data, mf.mtime = mf.readval(mf.data)
+	mf.data, mf.mtime = mf.read(mf.data[:0])
 
 	// Return FOPEN_DIRECT_IO so content is not cached.
 	return nil, fuse.FOPEN_DIRECT_IO, fs.OK
@@ -82,9 +86,9 @@ type staticFile struct {
 	ctime int64
 }
 
-func newStaticFile(data []byte) *staticFile {
+func newStaticFile(data string) *staticFile {
 	return &staticFile{
-		data:  data,
+		data:  []byte(data + "\n"),
 		ctime: time.Now().Unix(),
 	}
 }
@@ -101,7 +105,7 @@ func (sf *staticFile) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.At
 	out.Mtime = uint64(sf.ctime)
 	out.Mode = fuse.S_IFREG | 0444
 	out.Size = uint64(len(sf.data))
-	return 0
+	return fs.OK
 }
 
 // Open lazily unpacks zip data
