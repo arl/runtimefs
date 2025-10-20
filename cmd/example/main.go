@@ -9,14 +9,12 @@ import (
 	"github.com/arl/runtimefs"
 )
 
+const mountDir = "./mnt"
+
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("Usage: example <mountpoint>")
-		return
-	}
-	unmount, err := runtimefs.Mount(os.Args[1])
+	unmount, err := runtimefs.Mount(mountDir)
 	if err != nil {
-		fmt.Printf("Exiting: %s", err)
+		fmt.Printf("Failed to mount: %s", err)
 		return
 	}
 
@@ -28,7 +26,7 @@ func main() {
 
 	fmt.Println("Unmounting...")
 	if err := unmount(); err != nil {
-		fmt.Printf("Error during unmount: %s", err)
+		fmt.Printf("Failed to unmount: %s", err)
 	}
 	fmt.Println("Unmounted")
 }
