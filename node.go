@@ -108,7 +108,7 @@ func (sf *staticFile) Getattr(ctx context.Context, f fs.FileHandle, out *fuse.At
 	return fs.OK
 }
 
-// Open lazily unpacks zip data
+// Open has basically nothing to do since the data is static.
 func (sf *staticFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
 	// Disallow writes.
 	if flags&(syscall.O_RDWR|syscall.O_WRONLY) != 0 {
