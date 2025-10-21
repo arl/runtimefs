@@ -120,7 +120,7 @@ func (sf *staticFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, ui
 	return nil, fuse.FOPEN_KEEP_CACHE, fs.OK
 }
 
-// Read simply returns the data that was already unpacked in the Open call
+// Read simply returns the data given when creating sf.
 func (sf *staticFile) Read(ctx context.Context, f fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
 	end := min(int(off)+len(dest), len(sf.data))
 	return fuse.ReadResultData(sf.data[off:end]), fs.OK
