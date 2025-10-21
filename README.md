@@ -22,7 +22,15 @@ Install the library:
 go get github.com/arl/runtimefs@latest
 ```
 
-API:
+To quickly try it out and explore the created filesystem, just run:
+
+```
+cd /tmp
+mkdir metrics
+go run github.com/arl/runtimefs/cmd/example@latest metrics
+```
+
+**API**:
 
 ```go
 // Mount mounts the runtime metrics filesystem at the given directory path. It
